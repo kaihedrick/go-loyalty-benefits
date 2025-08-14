@@ -1,0 +1,74 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Auth Service
+  - job_name: 'auth-svc'
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Loyalty Service
+  - job_name: 'loyalty-svc'
+    static_configs:
+      - targets: ['host.docker.internal:8082']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Catalog Service
+  - job_name: 'catalog-svc'
+    static_configs:
+      - targets: ['host.docker.internal:8083']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Redemption Service
+  - job_name: 'redemption-svc'
+    static_configs:
+      - targets: ['host.docker.internal:8084']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Partner Gateway
+  - job_name: 'partner-gateway'
+    static_configs:
+      - targets: ['host.docker.internal:8085']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Notification Service
+  - job_name: 'notify-svc'
+    static_configs:
+      - targets: ['host.docker.internal:8086']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # Kafka
+  - job_name: 'kafka'
+    static_configs:
+      - targets: ['kafka:9092']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # PostgreSQL (if using postgres_exporter)
+  # - job_name: 'postgres'
+  #   static_configs:
+  #     - targets: ['postgres-exporter:9187']
+  #   scrape_interval: 30s
+
+  # Redis (if using redis_exporter)
+  # - job_name: 'redis'
+  #   static_configs:
+  #     - targets: ['redis-exporter:9121']
+  #   scrape_interval: 30s
