@@ -110,15 +110,15 @@ func (s *Service) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == sql.ErrNoRows {
 			s.logger.Infof("User with email %s does not exist (this is expected for new registrations)", req.Email)
-			// Continue with user creation since user doesn't exist
 		} else {
 			s.logger.Errorf("Failed to check existing user: %v", err)
 			render.Status(r, http.StatusInternalServerError)
 			render.JSON(w, r, map[string]string{"error": "Internal server error"})
 			return
 		}
-	} else if existingUser != nil {
-		// User already exists
+	}
+
+	if existingUser != nil {
 		render.Status(r, http.StatusConflict)
 		render.JSON(w, r, map[string]string{"error": "User already exists"})
 		return
@@ -295,15 +295,7 @@ func (s *Service) getUserByEmail(ctx context.Context, email string) (*User, erro
 	)
 
 	if err != nil {
-		// Debug: log the error type and message
-		s.logger.Infof("Database query error: type=%T, error=%v, message='%s'", err, err, err.Error())
-
-		// Use errors.Is for more robust error comparison
-		if err == sql.ErrNoRows || err.Error() == "no rows in result set" {
-			s.logger.Infof("User with email %s not found (this is expected for new registrations)", email)
-			return nil, sql.ErrNoRows
-		}
-		s.logger.Errorf("Query failed with unexpected error: %v", err)
+		s.logger.Errorf("Query failed with error: %v", err)
 		return nil, err
 	}
 

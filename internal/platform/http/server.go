@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/go-chi/render"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 )
 
@@ -49,14 +49,14 @@ func NewServer(config *ServerConfig, logger *logrus.Logger) *Server {
 	}
 
 	router := chi.NewRouter()
-	
+
 	// Add middleware
 	router.Use(middleware.RequestID)
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(config.WriteTimeout))
-	
+
 	// CORS middleware
 	router.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   config.AllowedOrigins,
@@ -69,7 +69,10 @@ func NewServer(config *ServerConfig, logger *logrus.Logger) *Server {
 
 	// Health check endpoint
 	router.Get("/healthz", healthCheck)
-	
+
+	// Prometheus metrics endpoint
+	router.Handle("/metrics", promhttp.Handler())
+
 	server := &http.Server{
 		Addr:         config.Addr,
 		Handler:      router,

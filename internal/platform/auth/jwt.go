@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -48,9 +47,9 @@ func NewJWTManager(config *JWTConfig) *JWTManager {
 func (m *JWTManager) GenerateToken(userID, email, role string) (string, error) {
 	now := time.Now()
 	claims := &Claims{
-		UserID: userID,
-		Email:  email,
-		Role:   role,
+		UserID:   userID,
+		Email:    email,
+		Role:     role,
 		IssuedAt: now.Unix(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        uuid.New().String(),

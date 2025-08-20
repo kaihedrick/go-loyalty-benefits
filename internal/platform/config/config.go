@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,12 +22,12 @@ type Config struct {
 
 // AppConfig holds application-level configuration
 type AppConfig struct {
-	Name             string        `mapstructure:"name"`
-	HTTPAddr         string        `mapstructure:"http_addr"`
-	LogLevel         string        `mapstructure:"log_level"`
-	ShutdownTimeout  time.Duration `mapstructure:"shutdown_timeout"`
-	Environment      string        `mapstructure:"environment"`
-	Version          string        `mapstructure:"version"`
+	Name            string        `mapstructure:"name"`
+	HTTPAddr        string        `mapstructure:"http_addr"`
+	LogLevel        string        `mapstructure:"log_level"`
+	ShutdownTimeout time.Duration `mapstructure:"shutdown_timeout"`
+	Environment     string        `mapstructure:"environment"`
+	Version         string        `mapstructure:"version"`
 }
 
 // DatabaseConfig holds database connection configuration
@@ -47,8 +49,8 @@ type PostgresConfig struct {
 
 // MongoConfig holds MongoDB configuration
 type MongoConfig struct {
-	URI      string `mapstructure:"uri"`
-	Database string `mapstructure:"database"`
+	URI      string        `mapstructure:"uri"`
+	Database string        `mapstructure:"database"`
 	Timeout  time.Duration `mapstructure:"timeout"`
 }
 
@@ -62,24 +64,24 @@ type RedisConfig struct {
 
 // KafkaConfig holds Kafka configuration
 type KafkaConfig struct {
-	Brokers   []string `mapstructure:"brokers"`
-	ClientID  string   `mapstructure:"client_id"`
-	GroupID   string   `mapstructure:"group_id"`
-	Version   string   `mapstructure:"version"`
-	Topics    Topics   `mapstructure:"topics"`
+	Brokers  []string `mapstructure:"brokers"`
+	ClientID string   `mapstructure:"client_id"`
+	GroupID  string   `mapstructure:"group_id"`
+	Version  string   `mapstructure:"version"`
+	Topics   Topics   `mapstructure:"topics"`
 }
 
 // Topics holds Kafka topic names
 type Topics struct {
-	PointsEarned      string `mapstructure:"points_earned"`
-	RedemptionRequest string `mapstructure:"redemption_request"`
+	PointsEarned       string `mapstructure:"points_earned"`
+	RedemptionRequest  string `mapstructure:"redemption_request"`
 	RedemptionComplete string `mapstructure:"redemption_complete"`
-	RedemptionFailed  string `mapstructure:"redemption_failed"`
+	RedemptionFailed   string `mapstructure:"redemption_failed"`
 }
 
 // SecurityConfig holds security-related configuration
 type SecurityConfig struct {
-	JWT JWTConfig `mapstructure:"jwt"`
+	JWT  JWTConfig  `mapstructure:"jwt"`
 	MTLS MTLSConfig `mapstructure:"mtls"`
 }
 
@@ -93,7 +95,7 @@ type JWTConfig struct {
 
 // MTLSConfig holds mTLS configuration
 type MTLSConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
+	Enabled  bool   `mapstructure:"enabled"`
 	CertFile string `mapstructure:"cert_file"`
 	KeyFile  string `mapstructure:"key_file"`
 	CAFile   string `mapstructure:"ca_file"`
@@ -108,6 +110,7 @@ type OTelConfig struct {
 
 // Load loads configuration from environment variables and config files
 func Load(serviceName string) (*Config, error) {
+	// Set defaults first
 	viper.SetDefault("app.name", serviceName)
 	viper.SetDefault("app.http_addr", ":8080")
 	viper.SetDefault("app.log_level", "info")
@@ -139,10 +142,11 @@ func Load(serviceName string) (*Config, error) {
 	viper.SetDefault("otel.enabled", true)
 	viper.SetDefault("otel.otlp_endpoint", "http://localhost:4317")
 
-	// Set environment variable prefix
-	viper.SetEnvPrefix(strings.ToUpper(serviceName))
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-	viper.AutomaticEnv()
+	// DEBUG: Print environment variable prefix and some key values
+	fmt.Printf("=== CONFIG LOADER DEBUG ===\n")
+	fmt.Printf("Service Name: %s\n", serviceName)
+	fmt.Printf("Environment Prefix: %s\n", strings.ToUpper(serviceName))
+	fmt.Printf("Looking for env vars like: %s_APP_HTTP_ADDR\n", strings.ToUpper(serviceName))
 
 	// Try to read config file
 	viper.SetConfigName("config")
@@ -151,8 +155,105 @@ func Load(serviceName string) (*Config, error) {
 	viper.AddConfigPath("./config")
 	viper.AddConfigPath(fmt.Sprintf("./cmd/%s", serviceName))
 
-	// Ignore config file not found errors
-	viper.ReadInConfig()
+	// Try to read .env file
+	currentDir, _ := os.Getwd()
+	possiblePaths := []string{
+		".env",                                  // Current directory
+		"../.env",                               // Parent directory
+		"../../.env",                            // Two levels up
+		filepath.Join(currentDir, ".env"),       // Absolute path in current dir
+		filepath.Join(currentDir, "..", ".env"), // Absolute path in parent
+		filepath.Join(currentDir, "..", "..", ".env"), // Absolute path two levels up
+	}
+
+	var envPath string
+	for _, path := range possiblePaths {
+		if _, err := os.Stat(path); err == nil {
+			envPath = path
+			fmt.Printf("✅ Found .env file at: %s\n", path)
+			break
+		}
+	}
+
+	// CRITICAL: Configure Viper FIRST, before setting environment variables
+	fmt.Printf("🔄 Configuring Viper...\n")
+	viper.SetEnvPrefix(strings.ToUpper(serviceName))
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv()
+
+	// Read .env file manually and set environment variables
+	if _, err := os.Stat(envPath); err == nil {
+		fmt.Printf("✅ Found .env file at: %s\n", envPath)
+
+		// Read file content
+		content, readErr := os.ReadFile(envPath)
+		if readErr != nil {
+			fmt.Printf("❌ Failed to read .env file content: %v\n", readErr)
+		} else {
+			fmt.Printf("✅ Successfully read .env file content (%d bytes)\n", len(content))
+
+			// Parse and set environment variables manually
+			lines := strings.Split(string(content), "\n")
+			for _, line := range lines {
+				line = strings.TrimSpace(line)
+				if line != "" && !strings.HasPrefix(line, "#") {
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 {
+						key := strings.TrimSpace(parts[0])
+						value := strings.TrimSpace(parts[1])
+						// Remove quotes if present
+						value = strings.Trim(value, "\"'")
+
+						// Set environment variable
+						os.Setenv(key, value)
+						fmt.Printf("   Set env var: %s = '%s'\n", key, value)
+					}
+				}
+			}
+		}
+
+		// IMPORTANT: Refresh Viper after setting environment variables
+		fmt.Printf("🔄 Refreshing Viper configuration...\n")
+		viper.AutomaticEnv()
+
+		// DEBUG: Check if Viper can now see the environment variables
+		fmt.Printf("\n=== VIPER CONFIG DEBUG ===\n")
+		appHTTPAddr := viper.GetString("app.http_addr")
+		appLogLevel := viper.GetString("app.log_level")
+		dbHost := viper.GetString("database.postgres.host")
+		dbUser := viper.GetString("database.postgres.username")
+		dbPass := viper.GetString("database.postgres.password")
+		dbName := viper.GetString("database.postgres.database")
+
+		fmt.Printf("App HTTP Addr: '%s'\n", appHTTPAddr)
+		fmt.Printf("App Log Level: '%s'\n", appLogLevel)
+		fmt.Printf("DB Host: '%s'\n", dbHost)
+		fmt.Printf("DB User: '%s'\n", dbUser)
+		fmt.Printf("DB Password: '%s' (length: %d)\n", dbPass, len(dbPass))
+		fmt.Printf("DB Name: '%s'\n", dbName)
+		fmt.Printf("=== END VIPER CONFIG DEBUG ===\n")
+
+	} else {
+		fmt.Printf("❌ .env file not found in any expected location\n")
+	}
+
+	// Final Viper refresh and environment variable binding
+	viper.AutomaticEnv()
+
+	// Manually bind environment variables to Viper keys
+	viper.BindEnv("database.postgres.username", "AUTH-SVC_DATABASE_POSTGRES_USERNAME")
+	viper.BindEnv("database.postgres.password", "AUTH-SVC_DATABASE_POSTGRES_PASSWORD")
+	viper.BindEnv("database.postgres.database", "AUTH-SVC_DATABASE_POSTGRES_DATABASE")
+	viper.BindEnv("database.postgres.host", "AUTH-SVC_DATABASE_POSTGRES_HOST")
+	viper.BindEnv("database.postgres.port", "AUTH-SVC_DATABASE_POSTGRES_PORT")
+	viper.BindEnv("database.postgres.ssl_mode", "AUTH-SVC_DATABASE_POSTGRES_SSL_MODE")
+	viper.BindEnv("database.postgres.max_conns", "AUTH-SVC_DATABASE_POSTGRES_MAX_CONNS")
+
+	// Bind JWT security configuration
+	viper.BindEnv("security.jwt.secret", "JWT_SECRET")
+	viper.BindEnv("security.jwt.issuer", "JWT_ISSUER")
+	viper.BindEnv("security.jwt.audience", "JWT_AUDIENCE")
+	viper.BindEnv("security.jwt.expiration", "JWT_EXPIRATION")
 
 	var config Config
 	if err := viper.Unmarshal(&config); err != nil {

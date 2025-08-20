@@ -38,8 +38,8 @@ func NewPostgresDB(config *PostgresConfig, logger *logrus.Logger) (*PostgresDB, 
 	}
 
 	poolConfig.MaxConns = int32(config.MaxConns)
-	poolConfig.MaxConnsLifetime = time.Hour
-	poolConfig.MaxConnsIdleTime = 30 * time.Minute
+	poolConfig.MaxConnLifetime = time.Hour
+	poolConfig.MaxConnIdleTime = 30 * time.Minute
 	poolConfig.HealthCheckPeriod = time.Minute
 
 	pool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
