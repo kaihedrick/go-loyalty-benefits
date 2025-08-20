@@ -1,0 +1,44 @@
+# PowerShell Script Guidelines
+
+## Critical PowerShell Rules
+- **NEVER use emojis** in PowerShell (.ps1) files - they cause syntax errors and parsing issues
+- **NEVER use Unicode escape sequences** for emojis (e.g., [char]0x1F600) - this is also prohibited
+- **NEVER reference emojis** in any form - use only plain text alternatives
+- Use plain text alternatives like "SUCCESS:", "ERROR:", "WARNING:" instead of any emoji characters
+- Keep PowerShell scripts simple and compatible with all Windows PowerShell versions
+- Test PowerShell scripts before committing to ensure they run without errors
+
+## PowerShell Best Practices
+- Use clear, descriptive variable names
+- Include proper error handling with try-catch blocks
+- Use Write-Host for user-facing output
+- Use Write-Error for error messages
+- Use Write-Warning for warning messages
+- Use Write-Verbose for detailed logging when needed
+
+## Example PowerShell Output
+```powershell
+# GOOD - No emojis, clear text
+Write-Host "SUCCESS: Operation completed successfully" -ForegroundColor Green
+Write-Host "ERROR: Failed to connect to database" -ForegroundColor Red
+Write-Host "WARNING: Configuration file not found" -ForegroundColor Yellow
+
+# BAD - Emojis cause syntax errors
+Write-Host "✅ Operation completed successfully" -ForegroundColor Green
+Write-Host "❌ Failed to connect to database" -ForegroundColor Red
+Write-Host "⚠️ Configuration file not found" -ForegroundColor Yellow
+
+# ALSO BAD - Unicode escape sequences for emojis are prohibited
+Write-Host "Added emoji: $([char]0x1F600)" -ForegroundColor Green
+Write-Host "Emoji test: $([char]0x1F44D)" -ForegroundColor Blue
+```
+
+## Testing PowerShell Scripts
+- Always test scripts in a clean PowerShell session
+- Verify compatibility with different PowerShell versions
+- Check for syntax errors before committing
+- Use proper exit codes for automation scenarios
+description:
+globs:
+alwaysApply: false
+---

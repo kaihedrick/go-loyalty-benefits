@@ -1,0 +1,21 @@
+# Event-Driven Patterns
+
+## Kafka Usage
+- Use topics for different event types
+- Implement idempotency for event processing
+- Use dead letter queues for failed events
+- Consider event schema evolution
+
+## Outbox Pattern
+- Store events in database before publishing
+- Use background workers to publish events
+- Ensure at-least-once delivery semantics
+
+## Event-Driven Architecture
+- Services communicate via HTTP APIs and Kafka events
+- Event-driven architecture for loose coupling
+- Use **goroutines safely**; guard shared state with channels or sync primitives
+description:
+globs:
+alwaysApply: false
+---

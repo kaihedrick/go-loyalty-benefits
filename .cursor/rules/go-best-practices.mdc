@@ -1,0 +1,67 @@
+# Go Best Practices
+
+## Code Style
+- Use `gofmt` for code formatting
+- Follow Go naming conventions (PascalCase for exported, camelCase for private)
+- Use meaningful variable names, avoid abbreviations
+- Keep functions small and focused (single responsibility)
+
+## Error Handling
+- Always check errors, never ignore them
+- Use `fmt.Errorf` with `%w` for error wrapping
+- Return errors from functions, don't log them inside
+- Use custom error types for specific error conditions
+
+## Database Operations
+- Use prepared statements to prevent SQL injection
+- Handle `sql.ErrNoRows` appropriately (it's not always an error)
+- Use transactions for multi-step operations
+- Implement proper connection pooling
+
+## Configuration
+- Use environment variables for configuration
+- Avoid hardcoded values in code
+- Use Viper for configuration management
+- Support `.env` files for local development
+
+## Performance
+- Use **benchmarks** to track performance regressions and identify bottlenecks.
+- Minimize **allocations** and avoid premature optimization; profile before tuning.
+- Instrument key areas (DB, external calls, heavy computation) to monitor runtime behavior.
+
+## Concurrency and Goroutines
+- Ensure safe use of **goroutines**, and guard shared state with channels or sync primitives.
+- Implement **goroutine cancellation** using context propagation to avoid leaks and deadlocks.
+
+## Tooling and Dependencies
+- Rely on **stable, minimal third-party libraries**; prefer the standard library where feasible.
+- Use **Go modules** for dependency management and reproducibility.
+- Version-lock dependencies for deterministic builds.
+- Integrate **linting, testing, and security checks** in CI pipelines.
+
+## Essential Commands
+```bash
+# Format code
+go fmt ./...
+
+# Run tests
+go test ./...
+
+# Build
+go build ./cmd/auth-svc
+
+# Run service
+go run cmd/auth-svc/main.go
+
+# Update dependencies
+go mod tidy
+go mod download
+
+# Check for issues
+go vet ./...
+golangci-lint run
+```
+description:
+globs:
+alwaysApply: false
+---

@@ -1,0 +1,44 @@
+# Cursor Rules for Go Loyalty & Benefits Platform
+
+This directory contains the organized cursor rules for the Go Loyalty & Benefits Platform project, split into logical sections for better maintainability.
+
+## Rule Files
+
+### Core Guidelines
+- **project-overview.mdc** - Project overview, architecture principles, and key conventions
+- **ai-guidelines.mdc** - AI assistant responsibilities and development patterns
+- **go-best-practices.mdc** - Go language best practices and essential commands
+
+### Technical Standards
+- **observability.mdc** - OpenTelemetry, logging, metrics, and tracing guidelines
+- **security.mdc** - Security best practices and authentication guidelines
+- **testing.mdc** - Testing strategies and coverage requirements
+- **event-driven.mdc** - Kafka and event-driven architecture patterns
+
+### Troubleshooting & Maintenance
+- **critical-bugs.mdc** - Resolved critical bugs and debugging checklist
+- **powershell.mdc** - PowerShell script guidelines and restrictions
+
+## Usage
+
+These rules are automatically applied by Cursor when working in this project. Each file focuses on a specific aspect of development to provide targeted guidance.
+
+## Maintenance
+
+- Update rules as new patterns emerge or bugs are resolved
+- Keep each file focused on its specific domain
+- Test PowerShell scripts before committing (no emojis allowed!)
+- Follow the debugging checklist in critical-bugs.mdc when troubleshooting
+
+## Quick Reference
+
+- **Go Development**: See `go-best-practices.mdc` and `ai-guidelines.mdc`
+- **Observability**: See `observability.mdc`
+- **Security**: See `security.mdc`
+- **Testing**: See `testing.mdc`
+- **Troubleshooting**: See `critical-bugs.mdc`
+- **PowerShell**: See `powershell.mdc` (no emojis!)
+description:
+globs:
+alwaysApply: false
+---

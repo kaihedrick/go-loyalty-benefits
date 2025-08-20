@@ -1,0 +1,24 @@
+# Testing Guidelines
+
+## Unit Tests
+- Write tests for all business logic
+- Use table-driven tests for multiple scenarios
+- Mock external dependencies
+- Aim for >80% code coverage
+- Use tools like 'go test -cover' to ensure adequate test coverage
+
+## Integration Tests
+- Test database operations with test containers
+- Test HTTP endpoints with real HTTP requests
+- Test Kafka message handling
+- Separate **fast unit tests** from slower integration and E2E tests
+- Ensure **test coverage** for every exported function, with behavioral checks
+
+## Testing Best Practices
+- Use **benchmarks** to track performance regressions and identify bottlenecks.
+- Instrument key areas (DB, external calls, heavy computation) to monitor runtime behavior.
+- Ensure all behavior is **observable, testable, and documented**.
+description:
+globs:
+alwaysApply: false
+---

@@ -1,0 +1,20 @@
+---
+description: "Check .cursorrules folder and .md files before responding"
+globs:
+alwaysApply: true
+---
+
+# Cursor Rules Configuration
+
+## Before Responding
+Always check the `.cursorrules` folder and any `.md` files for context, rules, or guidelines before providing any response.
+
+## File References
+- `.cursorrules/` - Contains project-specific rules and guidelines
+- `*.md` - Markdown files with additional context and documentation
+
+## Response Guidelines
+1. Review `.cursorrules` folder contents first
+2. Check relevant `.md` files for context
+3. Follow any established patterns or rules found
+4. Then proceed with the user's request

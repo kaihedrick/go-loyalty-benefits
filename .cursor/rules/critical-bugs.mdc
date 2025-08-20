@@ -1,0 +1,146 @@
+# Critical Bugs & Lessons Learned
+
+## Configuration Loading Issues (RESOLVED)
+
+### Problem 1: Environment Variables Not Loading
+**Symptoms**: Database connection errors with empty credentials
+**Root Cause**: Viper configuration loading order and `.env` file path issues
+**Solution**: 
+```go
+// CRITICAL: Load .env BEFORE calling viper.AutomaticEnv()
+if err := godotenv.Load(); err != nil {
+    // Fallback to manual parsing
+    if envFile, err := findEnvFile(); err == nil {
+        parseAndSetEnvVars(envFile)
+    }
+}
+viper.AutomaticEnv()
+```
+
+### Problem 2: .env File Path Resolution
+**Symptoms**: "Config File .env Not Found" errors
+**Root Cause**: Viper looking in wrong directory (cmd/service instead of project root)
+**Solution**: Add multiple search paths
+```go
+viper.AddConfigPath(".")
+viper.AddConfigPath("..")
+viper.AddConfigPath("../..")
+```
+
+### Problem 3: JWT Configuration Not Loading
+**Symptoms**: Empty JWT secret causing authentication failures
+**Root Cause**: Inconsistent environment variable naming (JWT_SECRET vs AUTH-SVC_SECURITY_JWT_SECRET)
+**Solution**: Standardize naming convention in .env file
+
+## Database Schema Mismatches (RESOLVED)
+
+### Problem 4: SQL Query Failures
+**Symptoms**: "Failed to check existing user: no rows in result set"
+**Root Cause**: Go struct fields didn't match PostgreSQL table schema
+**Solution**: Update User struct to include all database columns
+```go
+type User struct {
+    ID           string    `json:"id"`
+    Email        string    `json:"email"`
+    PasswordHash string    `json:"-"`
+    Role         string    `json:"role"`
+    FirstName    *string   `json:"first_name,omitempty"`  // ADDED
+    LastName     *string   `json:"last_name,omitempty"`   // ADDED
+    Phone        *string   `json:"phone,omitempty"`       // ADDED
+    CreatedAt    time.Time `json:"created_at"`
+    UpdatedAt    time.Time `json:"updated_at"`
+}
+```
+
+### Problem 5: Database Not Initialized
+**Symptoms**: Tables don't exist when service starts
+**Root Cause**: init.sql script not automatically executed
+**Solution**: Manual database initialization required
+```bash
+# Copy init script to container
+docker cp deploy/compose/init.sql <container_name>:/tmp/
+
+# Execute in container
+docker exec -it <container_name> psql -U loyalty -d loyalty -f /tmp/init.sql
+```
+
+## Error Handling Logic Issues (RESOLVED)
+
+### Problem 6: sql.ErrNoRows Treated as Fatal Error
+**Symptoms**: Registration failing with "Internal server error" for new users
+**Root Cause**: sql.ErrNoRows means "user not found" - expected for new registrations
+**Solution**: Proper error handling
+```go
+existingUser, err := s.getUserByEmail(r.Context(), req.Email)
+if err != nil {
+    if err == sql.ErrNoRows {
+        // This is expected for new registrations - continue
+        s.logger.Infof("User with email %s does not exist (expected for new registrations)", req.Email)
+        return
+    } else {
+        // This is a real error - return 500
+        s.logger.Errorf("Failed to check existing user: %v", err)
+        render.Status(r, http.StatusInternalServerError)
+        render.JSON(w, r, map[string]string{"error": "Internal server error"})
+        return
+    }
+}
+```
+
+## Compilation & Runtime Issues (RESOLVED)
+
+### Problem 7: pgxpool.Config Field Names
+**Symptoms**: Compilation errors with unknown fields
+**Root Cause**: Incorrect field names in pgxpool.Config
+**Solution**: Use correct field names
+```go
+// WRONG:
+MaxConnsLifetime: time.Hour,
+MaxConnsIdleTime: time.Minute * 5,
+
+// CORRECT:
+MaxConnLifetime: time.Hour,
+MaxConnIdleTime: time.Minute * 5,
+```
+
+### Problem 8: Unused Imports
+**Symptoms**: Compilation errors about unused packages
+**Root Cause**: Leftover imports from refactoring
+**Solution**: Run `go mod tidy` and remove unused imports
+
+### Problem 9: Port Conflicts
+**Symptoms**: "Only one usage of each socket address is normally permitted"
+**Root Cause**: Multiple services trying to use same port
+**Solution**: Ensure unique ports per service in configuration
+
+## API Routing Issues (RESOLVED)
+
+### Problem 10: 404 Page Not Found
+**Symptoms**: API endpoints returning 404
+**Root Cause**: Incorrect URL paths (e.g., `/register` instead of `/v1/auth/register`)
+**Solution**: Use correct API paths from service routing
+```bash
+# WRONG:
+curl -X POST http://localhost:8081/register
+
+# CORRECT:
+curl -X POST http://localhost:8081/v1/auth/register
+```
+
+## Debugging Checklist
+
+When encountering issues, check in this order:
+
+1. **Configuration Loading**: Are environment variables being read correctly?
+2. **Database Connection**: Can the service connect to PostgreSQL?
+3. **Database Schema**: Do tables exist and match Go structs?
+4. **Error Handling**: Are expected errors (like sql.ErrNoRows) handled properly?
+5. **API Routing**: Are endpoints accessible at correct paths?
+6. **Port Conflicts**: Are services using unique ports?
+7. **Dependencies**: Are all Go modules properly downloaded?
+
+**Remember**: This is a living document. Update it as new bugs are discovered and resolved!
+description:
+globs:
+alwaysApply: false
+---

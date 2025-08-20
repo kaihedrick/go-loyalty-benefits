@@ -3,16 +3,15 @@ package loyalty
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
 	"github.com/google/uuid"
+	"github.com/kaihedrick/go-loyalty-benefits/internal/platform/auth"
 	"github.com/kaihedrick/go-loyalty-benefits/internal/platform/config"
 	"github.com/kaihedrick/go-loyalty-benefits/internal/platform/database"
-	"github.com/kaihedrick/go-loyalty-benefits/internal/platform/messaging"
 	"github.com/sirupsen/logrus"
 )
 
@@ -21,68 +20,75 @@ type Service struct {
 	config     *config.Config
 	logger     *logrus.Logger
 	db         *database.PostgresDB
-	kafka      *messaging.KafkaProducer
+	jwtManager *auth.JWTManager
+}
+
+// User represents a user's loyalty profile
+type User struct {
+	ID        string    `json:"id"`
+	Email     string    `json:"email"`
+	Points    int       `json:"points"`
+	Tier      string    `json:"tier"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Transaction represents a loyalty transaction
 type Transaction struct {
 	ID          string    `json:"id"`
 	UserID      string    `json:"user_id"`
-	Amount      float64   `json:"amount"`
-	MCC         string    `json:"mcc"`           // Merchant Category Code
-	MerchantID  string    `json:"merchant_id"`
-	Points      int       `json:"points"`
-	Multiplier  float64   `json:"multiplier"`
+	Type        string    `json:"type"` // "earn" or "spend"
+	Amount      int       `json:"amount"`
+	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// Balance represents a user's loyalty balance
-type Balance struct {
-	UserID         string `json:"user_id"`
-	AvailablePoints int64  `json:"available_points"`
-	LifetimePoints  int64  `json:"lifetime_points"`
-	UpdatedAt      time.Time `json:"updated_at"`
+// Reward represents an available reward
+type Reward struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	PointsCost  int    `json:"points_cost"`
+	Category    string `json:"category"`
+	IsActive    bool   `json:"is_active"`
 }
 
-// TransactionRequest represents a transaction request
-type TransactionRequest struct {
-	Amount     float64 `json:"amount" validate:"required,gt=0"`
-	MCC        string  `json:"mcc" validate:"required"`
-	MerchantID string  `json:"merchant_id" validate:"required"`
+// EarnRequest represents a points earning request
+type EarnRequest struct {
+	UserID      string `json:"user_id" validate:"required"`
+	Amount      int    `json:"amount" validate:"required,min=1"`
+	Description string `json:"description" validate:"required"`
 }
 
-// TransactionResponse represents a transaction response
-type TransactionResponse struct {
-	TransactionID string  `json:"txn_id"`
-	Points        int     `json:"points"`
-	Multiplier    float64 `json:"multiplier"`
-	Message       string  `json:"message"`
+// SpendRequest represents a points spending request
+type SpendRequest struct {
+	UserID      string `json:"user_id" validate:"required"`
+	Amount      int    `json:"amount" validate:"required,min=1"`
+	Description string `json:"description" validate:"required"`
 }
 
-// PointsEarnedEvent represents the points earned event
-type PointsEarnedEvent struct {
-	EventID    string    `json:"event_id"`
-	UserID     string    `json:"user_id"`
-	TxnID      string    `json:"txn_id"`
-	Points     int       `json:"points"`
-	Multiplier float64   `json:"multiplier"`
-	MCC        string    `json:"mcc"`
-	Timestamp  time.Time `json:"ts"`
+// LoyaltyResponse represents a loyalty service response
+type LoyaltyResponse struct {
+	Success bool        `json:"success"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 // NewService creates a new loyalty service
 func NewService(cfg *config.Config, logger *logrus.Logger) *Service {
-	// Initialize Kafka producer
-	kafkaConfig := &messaging.KafkaConfig{
-		Brokers:  cfg.Kafka.Brokers,
-		ClientID: cfg.Kafka.ClientID,
+	// Initialize JWT manager
+	jwtConfig := &auth.JWTConfig{
+		Secret:     cfg.Security.JWT.Secret,
+		Issuer:     cfg.Security.JWT.Issuer,
+		Audience:   cfg.Security.JWT.Audience,
+		Expiration: cfg.Security.JWT.Expiration,
 	}
-	kafkaProducer := messaging.NewKafkaProducer(kafkaConfig, logger)
+	jwtManager := auth.NewJWTManager(jwtConfig)
 
 	return &Service{
-		config: cfg,
-		logger: logger,
-		kafka:  kafkaProducer,
+		config:     cfg,
+		logger:     logger,
+		jwtManager: jwtManager,
 	}
 }
 
@@ -92,230 +98,390 @@ func (s *Service) SetDatabase(db *database.PostgresDB) {
 }
 
 // Routes returns the loyalty service routes
-func (s *Service) Routes(r chi.Router) {
-	r.Route("/v1", func(r chi.Router) {
-		r.Post("/transactions", s.AuthMiddleware(s.CreateTransaction))
+func (s *Service) Routes(r *chi.Mux) {
+	r.Route("/v1/loyalty", func(r chi.Router) {
+		r.Post("/earn", s.AuthMiddleware(s.EarnPoints))
+		r.Post("/spend", s.AuthMiddleware(s.SpendPoints))
 		r.Get("/balance", s.AuthMiddleware(s.GetBalance))
-		r.Get("/transactions", s.AuthMiddleware(s.GetTransactions))
+		r.Get("/history", s.AuthMiddleware(s.GetHistory))
+		r.Get("/rewards", s.GetRewards)
 	})
 }
 
-// AuthMiddleware is a placeholder for JWT authentication
-func (s *Service) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Implement JWT validation
-		// For now, just extract user ID from header
-		userID := r.Header.Get("X-User-ID")
-		if userID == "" {
-			render.Status(r, http.StatusUnauthorized)
-			render.JSON(w, r, map[string]string{"error": "User ID required"})
-			return
-		}
-		// Add user ID to context
-		ctx := context.WithValue(r.Context(), "user_id", userID)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	}
-}
-
-// CreateTransaction handles creating a new loyalty transaction
-func (s *Service) CreateTransaction(w http.ResponseWriter, r *http.Request) {
-	var req TransactionRequest
+// EarnPoints handles points earning
+func (s *Service) EarnPoints(w http.ResponseWriter, r *http.Request) {
+	var req EarnRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		render.Status(r, http.StatusBadRequest)
-		render.JSON(w, r, map[string]string{"error": "Invalid request body"})
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Invalid request body"})
 		return
 	}
 
 	// Validate request
-	if req.Amount <= 0 || req.MCC == "" || req.MerchantID == "" {
+	if req.UserID == "" || req.Amount <= 0 || req.Description == "" {
 		render.Status(r, http.StatusBadRequest)
-		render.JSON(w, r, map[string]string{"error": "Amount, MCC, and Merchant ID are required"})
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "User ID, amount, and description are required"})
 		return
 	}
 
+	// Get user from context (set by auth middleware)
 	userID := r.Context().Value("user_id").(string)
-	
-	// Calculate points based on amount and MCC
-	points, multiplier := s.calculatePoints(req.Amount, req.MCC)
-	
-	// Create transaction
-	txn := &Transaction{
-		ID:         uuid.New().String(),
-		UserID:     userID,
-		Amount:     req.Amount,
-		MCC:        req.MCC,
-		MerchantID: req.MerchantID,
-		Points:     points,
-		Multiplier: multiplier,
-		CreatedAt:  time.Now(),
-	}
-
-	// Save transaction to database
-	if err := s.saveTransaction(txn); err != nil {
-		s.logger.Errorf("Failed to save transaction: %v", err)
-		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, map[string]string{"error": "Failed to process transaction"})
+	if userID != req.UserID {
+		render.Status(r, http.StatusForbidden)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Can only earn points for your own account"})
 		return
 	}
 
-	// Update user balance
-	if err := s.updateBalance(userID, points); err != nil {
-		s.logger.Errorf("Failed to update balance: %v", err)
-		// Transaction was saved, so we should still return success
+	// Ensure user exists in loyalty_users (auto-create if needed)
+	_, err := s.getUserByID(r.Context(), userID)
+	if err != nil {
+		s.logger.Errorf("Failed to get/create user: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get user info"})
+		return
 	}
 
-	// Emit points earned event
-	event := &PointsEarnedEvent{
-		EventID:    uuid.New().String(),
-		UserID:     userID,
-		TxnID:      txn.ID,
-		Points:     points,
-		Multiplier: multiplier,
-		MCC:        req.MCC,
-		Timestamp:  time.Now(),
+	// Create transaction
+	txID := uuid.New().String()
+	now := time.Now()
+	transaction := &Transaction{
+		ID:          txID,
+		UserID:      userID,
+		Type:        "earn",
+		Amount:      req.Amount,
+		Description: req.Description,
+		CreatedAt:   now,
 	}
 
-	if err := s.emitPointsEarnedEvent(event); err != nil {
-		s.logger.Errorf("Failed to emit points earned event: %v", err)
-		// Don't fail the request for event emission failure
+	if err := s.createTransaction(r.Context(), transaction); err != nil {
+		s.logger.Errorf("Failed to create transaction: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to process points earning"})
+		return
 	}
 
-	// Return response
-	response := &TransactionResponse{
-		TransactionID: txn.ID,
-		Points:        points,
-		Multiplier:    multiplier,
-		Message:       fmt.Sprintf("Earned %d points with %.1fx multiplier", points, multiplier),
+	// Update user points
+	if err := s.updateUserPoints(r.Context(), userID, req.Amount); err != nil {
+		s.logger.Errorf("Failed to update user points: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to update user points"})
+		return
+	}
+
+	// Get updated user info
+	updatedUser, err := s.getUserByID(r.Context(), userID)
+	if err != nil {
+		s.logger.Errorf("Failed to get updated user: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get updated user info"})
+		return
+	}
+
+	response := LoyaltyResponse{
+		Success: true,
+		Message: "Points earned successfully",
+		Data: map[string]interface{}{
+			"transaction": transaction,
+			"user":        updatedUser,
+		},
 	}
 
 	render.Status(r, http.StatusCreated)
 	render.JSON(w, r, response)
 }
 
-// GetBalance returns the user's current loyalty balance
+// SpendPoints handles points spending
+func (s *Service) SpendPoints(w http.ResponseWriter, r *http.Request) {
+	var req SpendRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Invalid request body"})
+		return
+	}
+
+	// Validate request
+	if req.UserID == "" || req.Amount <= 0 || req.Description == "" {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "User ID, amount, and description are required"})
+		return
+	}
+
+	// Get user from context (set by auth middleware)
+	userID := r.Context().Value("user_id").(string)
+	if userID != req.UserID {
+		render.Status(r, http.StatusForbidden)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Can only spend points from your own account"})
+		return
+	}
+
+	// Check if user has enough points
+	user, err := s.getUserByID(r.Context(), userID)
+	if err != nil {
+		s.logger.Errorf("Failed to get user: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get user info"})
+		return
+	}
+
+	if user.Points < req.Amount {
+		render.Status(r, http.StatusBadRequest)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Insufficient points"})
+		return
+	}
+
+	// Create transaction
+	txID := uuid.New().String()
+	now := time.Now()
+	transaction := &Transaction{
+		ID:          txID,
+		UserID:      userID,
+		Type:        "spend",
+		Amount:      req.Amount,
+		Description: req.Description,
+		CreatedAt:   now,
+	}
+
+	if err := s.createTransaction(r.Context(), transaction); err != nil {
+		s.logger.Errorf("Failed to create transaction: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to process points spending"})
+		return
+	}
+
+	// Update user points (subtract)
+	if err := s.updateUserPoints(r.Context(), userID, -req.Amount); err != nil {
+		s.logger.Errorf("Failed to update user points: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to update user points"})
+		return
+	}
+
+	// Get updated user info
+	updatedUser, err := s.getUserByID(r.Context(), userID)
+	if err != nil {
+		s.logger.Errorf("Failed to get updated user: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get updated user info"})
+		return
+	}
+
+	response := LoyaltyResponse{
+		Success: true,
+		Message: "Points spent successfully",
+		Data: map[string]interface{}{
+			"transaction": transaction,
+			"user":        updatedUser,
+		},
+	}
+
+	render.JSON(w, r, response)
+}
+
+// GetBalance returns the current user's loyalty balance
 func (s *Service) GetBalance(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
-	
-	balance, err := s.getBalance(userID)
+
+	user, err := s.getUserByID(r.Context(), userID)
 	if err != nil {
-		s.logger.Errorf("Failed to get balance: %v", err)
+		s.logger.Errorf("Failed to get user balance: %v", err)
 		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, map[string]string{"error": "Failed to retrieve balance"})
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get user balance"})
 		return
 	}
 
-	render.JSON(w, r, balance)
+	response := LoyaltyResponse{
+		Success: true,
+		Message: "Balance retrieved successfully",
+		Data:    user,
+	}
+
+	render.JSON(w, r, response)
 }
 
-// GetTransactions returns the user's transaction history
-func (s *Service) GetTransactions(w http.ResponseWriter, r *http.Request) {
+// GetHistory returns the user's transaction history
+func (s *Service) GetHistory(w http.ResponseWriter, r *http.Request) {
 	userID := r.Context().Value("user_id").(string)
-	
-	transactions, err := s.getTransactions(userID)
+
+	transactions, err := s.getUserTransactions(r.Context(), userID)
 	if err != nil {
-		s.logger.Errorf("Failed to get transactions: %v", err)
+		s.logger.Errorf("Failed to get user history: %v", err)
 		render.Status(r, http.StatusInternalServerError)
-		render.JSON(w, r, map[string]string{"error": "Failed to retrieve transactions"})
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get transaction history"})
 		return
 	}
 
-	render.JSON(w, r, transactions)
+	response := LoyaltyResponse{
+		Success: true,
+		Message: "History retrieved successfully",
+		Data:    transactions,
+	}
+
+	render.JSON(w, r, response)
 }
 
-// calculatePoints calculates points based on amount and MCC
-func (s *Service) calculatePoints(amount float64, mcc string) (int, float64) {
-	// Base rate: 1 point per dollar
-	basePoints := int(amount)
-	
-	// MCC-based multipliers
-	multipliers := map[string]float64{
-		"5812": 3.0,  // Eating places and restaurants
-		"5411": 2.5,  // Grocery stores, supermarkets
-		"5541": 2.0,  // Service stations
-		"5311": 1.5,  // Department stores
-		"5999": 1.0,  // Miscellaneous retail
+// GetRewards returns available rewards
+func (s *Service) GetRewards(w http.ResponseWriter, r *http.Request) {
+	rewards, err := s.getActiveRewards(r.Context())
+	if err != nil {
+		s.logger.Errorf("Failed to get rewards: %v", err)
+		render.Status(r, http.StatusInternalServerError)
+		render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Failed to get rewards"})
+		return
 	}
-	
-	multiplier, exists := multipliers[mcc]
-	if !exists {
-		multiplier = 1.0
+
+	response := LoyaltyResponse{
+		Success: true,
+		Message: "Rewards retrieved successfully",
+		Data:    rewards,
 	}
-	
-	points := int(float64(basePoints) * multiplier)
-	return points, multiplier
+
+	render.JSON(w, r, response)
 }
 
-// saveTransaction saves a transaction to the database
-func (s *Service) saveTransaction(txn *Transaction) error {
-	if s.db == nil {
-		// For now, just log - in production this would fail
-		s.logger.Warn("Database not initialized, skipping transaction save")
-		return nil
+// AuthMiddleware validates JWT tokens
+func (s *Service) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			render.Status(r, http.StatusUnauthorized)
+			render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Authorization header required"})
+			return
+		}
+
+		// Extract token from "Bearer <token>"
+		if len(authHeader) < 7 || authHeader[:7] != "Bearer " {
+			render.Status(r, http.StatusUnauthorized)
+			render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Invalid authorization header format"})
+			return
+		}
+
+		token := authHeader[7:]
+		claims, err := s.jwtManager.ValidateToken(token)
+		if err != nil {
+			render.Status(r, http.StatusUnauthorized)
+			render.JSON(w, r, LoyaltyResponse{Success: false, Message: "Invalid token"})
+			return
+		}
+
+		// Add user info to context
+		ctx := context.WithValue(r.Context(), "user_id", claims.UserID)
+		ctx = context.WithValue(ctx, "user_email", claims.Email)
+		ctx = context.WithValue(ctx, "user_role", claims.Role)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
 	}
-	
-	// TODO: Implement actual database save
-	s.logger.Infof("Would save transaction: %+v", txn)
-	return nil
 }
 
-// updateBalance updates the user's balance
-func (s *Service) updateBalance(userID string, points int) error {
-	if s.db == nil {
-		s.logger.Warn("Database not initialized, skipping balance update")
-		return nil
-	}
-	
-	// TODO: Implement actual balance update
-	s.logger.Infof("Would update balance for user %s: +%d points", userID, points)
-	return nil
+// Database helper methods
+func (s *Service) createTransaction(ctx context.Context, tx *Transaction) error {
+	query := `
+		INSERT INTO loyalty_transactions (id, user_id, type, amount, description, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`
+
+	err := s.db.Exec(ctx, query, tx.ID, tx.UserID, tx.Type, tx.Amount, tx.Description, tx.CreatedAt)
+	return err
 }
 
-// getBalance retrieves the user's balance
-func (s *Service) getBalance(userID string) (*Balance, error) {
-	if s.db == nil {
-		// Return mock data for now
-		return &Balance{
-			UserID:         userID,
-			AvailablePoints: 1500,
-			LifetimePoints:  5000,
-			UpdatedAt:      time.Now(),
-		}, nil
-	}
-	
-	// TODO: Implement actual database query
-	return nil, fmt.Errorf("not implemented")
+func (s *Service) updateUserPoints(ctx context.Context, userID string, pointsChange int) error {
+	query := `
+		UPDATE loyalty_users 
+		SET points = points + $1, updated_at = $2
+		WHERE id = $3
+	`
+
+	err := s.db.Exec(ctx, query, pointsChange, time.Now(), userID)
+	return err
 }
 
-// getTransactions retrieves the user's transaction history
-func (s *Service) getTransactions(userID string) ([]*Transaction, error) {
-	if s.db == nil {
-		// Return mock data for now
-		return []*Transaction{
-			{
-				ID:         "mock-1",
-				UserID:     userID,
-				Amount:     100.00,
-				MCC:        "5812",
-				MerchantID: "REST-001",
-				Points:     300,
-				Multiplier: 3.0,
-				CreatedAt:  time.Now().Add(-24 * time.Hour),
-			},
-		}, nil
-	}
-	
-	// TODO: Implement actual database query
-	return nil, fmt.Errorf("not implemented")
+// createLoyaltyUser creates a new loyalty user record
+func (s *Service) createLoyaltyUser(ctx context.Context, userID string, email string) error {
+	query := `
+		INSERT INTO loyalty_users (id, email, points, tier, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`
+
+	now := time.Now()
+	err := s.db.Exec(ctx, query, userID, email, 0, "Bronze", now, now)
+	return err
 }
 
-// emitPointsEarnedEvent emits a points earned event to Kafka
-func (s *Service) emitPointsEarnedEvent(event *PointsEarnedEvent) error {
-	if s.kafka == nil {
-		s.logger.Warn("Kafka not initialized, skipping event emission")
-		return nil
+// getUserByID gets a user from loyalty_users, auto-creating if they don't exist
+func (s *Service) getUserByID(ctx context.Context, userID string) (*User, error) {
+	query := `SELECT id, email, points, tier, created_at, updated_at FROM loyalty_users WHERE id = $1`
+
+	var user User
+	err := s.db.QueryRow(ctx, query, userID).Scan(
+		&user.ID, &user.Email, &user.Points, &user.Tier, &user.CreatedAt, &user.UpdatedAt,
+	)
+
+	if err != nil {
+		// User doesn't exist in loyalty_users, try to get their email from auth context
+		userEmail, ok := ctx.Value("user_email").(string)
+		if !ok {
+			return nil, err
+		}
+
+		// Auto-create the loyalty user
+		if err := s.createLoyaltyUser(ctx, userID, userEmail); err != nil {
+			s.logger.Errorf("Failed to auto-create loyalty user: %v", err)
+			return nil, err
+		}
+
+		// Now get the newly created user
+		err = s.db.QueryRow(ctx, query, userID).Scan(
+			&user.ID, &user.Email, &user.Points, &user.Tier, &user.CreatedAt, &user.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		s.logger.Infof("Auto-created loyalty user: %s (%s)", userID, userEmail)
 	}
-	
-	// TODO: Implement actual Kafka event emission
-	s.logger.Infof("Would emit event: %+v", event)
-	return nil
+
+	return &user, nil
+}
+
+func (s *Service) getUserTransactions(ctx context.Context, userID string) ([]*Transaction, error) {
+	query := `SELECT id, user_id, type, amount, description, created_at FROM loyalty_transactions WHERE user_id = $1 ORDER BY created_at DESC`
+
+	rows, err := s.db.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var transactions []*Transaction
+	for rows.Next() {
+		var tx Transaction
+		err := rows.Scan(&tx.ID, &tx.UserID, &tx.Type, &tx.Amount, &tx.Description, &tx.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		transactions = append(transactions, &tx)
+	}
+
+	return transactions, nil
+}
+
+func (s *Service) getActiveRewards(ctx context.Context) ([]*Reward, error) {
+	query := `SELECT id, name, description, points_cost, category, is_active FROM loyalty_rewards WHERE is_active = true ORDER BY points_cost ASC`
+
+	rows, err := s.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var rewards []*Reward
+	for rows.Next() {
+		var reward Reward
+		err := rows.Scan(&reward.ID, &reward.Name, &reward.Description, &reward.PointsCost, &reward.Category, &reward.IsActive)
+		if err != nil {
+			return nil, err
+		}
+		rewards = append(rewards, &reward)
+	}
+
+	return rewards, nil
 }

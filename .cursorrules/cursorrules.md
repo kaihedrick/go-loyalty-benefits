@@ -182,6 +182,12 @@ This is a Go-based microservices platform for loyalty programs and benefits mana
 - Separate **fast unit tests** from slower integration and E2E tests
 - Ensure **test coverage** for every exported function, with behavioral checks
 
+### **PowerShell Scripts:**
+- **NEVER use emojis** in PowerShell (.ps1) files - they cause syntax errors and parsing issues
+- Use plain text alternatives like "SUCCESS:", "ERROR:", "WARNING:" instead of ✅❌⚠️
+- Keep PowerShell scripts simple and compatible with all Windows PowerShell versions
+- Test PowerShell scripts before committing to ensure they run without errors
+
 ## 🚀 Performance
 
 ### Database

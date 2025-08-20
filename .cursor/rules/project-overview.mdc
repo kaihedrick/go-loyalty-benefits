@@ -1,0 +1,29 @@
+# Go Loyalty & Benefits Platform
+
+## Project Overview
+This is a Go-based microservices platform for loyalty programs and benefits management. The system uses PostgreSQL, MongoDB, Redis, Kafka, and follows microservices architecture patterns.
+
+## Architecture Principles
+
+### Microservices Design
+- Each service should be independently deployable
+- Services communicate via HTTP APIs and Kafka events
+- Database per service pattern (PostgreSQL for relational data, MongoDB for document data)
+- Event-driven architecture for loose coupling
+
+### Code Organization
+- `cmd/` - Service entry points
+- `internal/` - Private application code
+- `pkg/` - Public libraries that can be imported by other projects
+- `deploy/` - Infrastructure and deployment configurations
+
+## Key Conventions
+1. Prioritize **readability, simplicity, and maintainability**.
+2. Design for **change**: isolate business logic and minimize framework lock-in.
+3. Emphasize clear **boundaries** and **dependency inversion**.
+4. Ensure all behavior is **observable, testable, and documented**.
+5. **Automate workflows** for testing, building, and deployment.
+description:
+globs:
+alwaysApply: false
+---
